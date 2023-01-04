@@ -59,6 +59,9 @@ module Tourmaline
     @pool : DB::Pool(HTTP::Client)
     @auth_code : String?
 
+    # channel used to make sure polling times out after a while
+    @poll_timeout_channel = Channel(Nil).new
+
     # Create a new instance of `Tourmaline::Client`.
     #
     # ## Named Arguments

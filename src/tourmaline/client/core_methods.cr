@@ -68,6 +68,8 @@ module Tourmaline
           @next_offset = updates.last.update_id + 1
         end
 
+        @poll_timeout_channel.send(nil) if @polling
+
         updates
       end
 
@@ -1606,7 +1608,7 @@ module Tourmaline
       # Start polling for updates. This method uses a combination of `#get_updates`
       # and `#handle_update` to send continuously check Telegram's servers
       # for updates.
-      def poll(delete_webhook = false, no_middleware_check = false)
+      def poll(delete_webhook = false, no_middleware_check = false, timeout = 0)
         unless no_middleware_check
           if @middlewares.empty?
             self.use(EventMiddleware.new)
@@ -1620,10 +1622,22 @@ module Tourmaline
 
         while @polling
           begin
-            updates = get_updates
-            updates.each do |u|
-              handle_update(u)
+            spawn do
+              updates = get_updates(timeout: timeout)
+              updates.each do |u|
+                handle_update(u)
+              end
             end
+
+            select
+            when @poll_timeout_channel.receive
+            when timeout((timeout + 5).seconds)
+              Log.warn { "poll timeout exceeded" }
+              # NOTE: this does not kill the active HTTP client connection, so it could be
+              # that the next request fails with a "Terminated by other getUpdates request" error.
+              # this should recover itself after some time though
+            end
+
             sleep(0.5)
           rescue ex : Error::PoolRetryAttemptsExceeded
             raise ex
